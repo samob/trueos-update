@@ -1,9 +1,9 @@
 .Dd January 13, 2017
-.Dt PC-UPDATEMANAGER 8
+.Dt TRUEOS-UPDATE 8
 .Os TrueOS Rolling Release
 .\"----------------------------------------------------------------
 .Sh NAME
-.Nm pc-updatemanager
+.Nm trueos-update
 .Nd System update utility for TrueOS.
 .\"----------------------------------------------------------------
 .Sh SYNOPSIS
@@ -48,12 +48,12 @@ Perform delayed check for system and pkg updates.
 .\"----------------------------------------------------------------
 .Sh EXAMPLES
 .Bl -tag -width indent
-.It pc-updatemanager pkgupdate -f
+.It trueos-update pkgupdate -f
 Force an update to all installed packages.
 .\"----------------------------------------------------------------
 .Sh FILES
 .Bl -tag -width indent
-.It Pa /usr/local/share/trueos/pc-updatemanager/conf/sysupdate.conf
+.It Pa /usr/share/trueos-update/conf/sysupdate.conf
 Configuration settings for TrueOS Updater Service
 .\"----------------------------------------------------------------
 .Sh SEE ALSO

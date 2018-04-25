@@ -46,7 +46,7 @@ run_cmd_wtee()
 }
 
 # Set the program location
-PROGDIR="/usr/local/share/trueos/pc-updatemanager" ; export PROGDIR
+PROGDIR="/var/trueos-update" ; export PROGDIR
 
 # Set the pub openssl key
 SKEY="${PROGDIR}/conf/security.key" ; export SKEY
