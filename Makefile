@@ -42,7 +42,6 @@ uninstall_scripts:  FORCE
 	-$(DEL_FILE) -r $(INSTALL_ROOT)$(PREFIX)/share/trueos-update
 	-$(DEL_FILE) -r $(INSTALL_ROOT)$(PREFIX)/bin/pc-autoupdate
 	-$(DEL_FILE) -r $(INSTALL_ROOT)$(PREFIX)/etc/init.d/trueos-ipfs
-	-$(DEL_DIR) $(INSTALL_ROOT)$(PREFIX)/share/trueos/pc-updatemanager
 
 
 install_dochmod: first FORCE
@@ -59,8 +58,8 @@ install_pcupdated: first FORCE
 	-$(INSTALL_FILE) certs/pkg.cdn.trueos.org.20160701 $(INSTALL_ROOT)/usr/share/certs/fingerprints/trueos/trusted/
 
 uninstall_conf:  FORCE
-	-$(DEL_FILE) -r $(INSTALL_ROOT)$(PREFIX)/share/trueos/pc-updatemanager/conf
-	-$(DEL_DIR) $(INSTALL_ROOT)$(PREFIX)/share/trueos/pc-updatemanager
+	-$(DEL_FILE) -r $(INSTALL_ROOT)$(PREFIX)/trueos-update/conf
+	-$(DEL_DIR) $(INSTALL_ROOT)$(PREFIX)/trueos-update
 
 
 install:  install_scripts install_dochmod install_conf install_pcupdated  FORCE

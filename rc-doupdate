@@ -47,10 +47,10 @@ fi
 # Set indicator that this is first attempt at upgrading
 touch /var/.pc-attempt1
 
-if [ ! -d "/usr/local/log/pc-updatemanager" ] ; then
-   mkdir -p /usr/local/log/pc-updatemanager
+if [ ! -d "/var/log/trueos-update" ] ; then
+   mkdir -p /var/log/trueos-update
 fi
-OLOG="/usr/local/log/pc-updatemanager/upgrade.log"
+OLOG="/var/log/trueos-update/upgrade.log"
 clear
 
 # If the update left us without /root/.cshrc /root/.profile, due to hard-link funk, fix it

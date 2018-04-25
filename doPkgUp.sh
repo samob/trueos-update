@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Don't change these, get set dynamically at upgrade time by pc-updatemanager
+# Don't change these, get set dynamically at upgrade time by trueos-update
 PKG_FLAG="%%PKG_FLAG%%"
 REALPKGDLCACHE="%%REALPKGDLCACHE%%"
 PKGFILENAME="%%PKGFILENAME%%"
@@ -74,9 +74,9 @@ mv /etc/pkg/trueos-fingerprints /etc/pkg/trueos-fingerprints.previous 2>/dev/nul
 cp -r /usr/local/etc/pkg/fingerprints/trueos /etc/pkg/trueos-fingerprints
 
 # Set the cache directory
-PKG_CFLAG="-C /var/db/pc-updatemanager/.pkgUpdate.conf"
-echo "PKG_CACHEDIR: $REALPKGDLCACHE" > /var/db/pc-updatemanager/.pkgUpdate.conf
-echo "PKG_DBDIR: /var/db/pc-updatemanager/pkgdb" >> /var/db/pc-updatemanager/.pkgUpdate.conf
+PKG_CFLAG="-C /var/db/trueos-update/.pkgUpdate.conf"
+echo "PKG_CACHEDIR: $REALPKGDLCACHE" > /var/db/trueos-update/.pkgUpdate.conf
+echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> /var/db/trueos-update/.pkgUpdate.conf
 
 # Cleanup the old pkgs
 echo "Removing old packages... Please wait..."
@@ -231,21 +231,21 @@ fi
 echo "Moving updated pkg repo..."
 rm -rf /var/db/pkg.preUpgrade 2>/dev/null
 mv /var/db/pkg /var/db/pkg.preUpgrade
-mv /var/db/pc-updatemanager/pkgdb /var/db/pkg
+mv /var/db/trueos-update/pkgdb /var/db/pkg
 
 # Save the log files
-if [ ! -d "/usr/local/log/pc-updatemanager" ] ; then
-  mkdir -p /usr/local/log/pc-updatemanager
+if [ ! -d "/usr/local/log/trueos-update" ] ; then
+  mkdir -p /usr/local/log/trueos-update
 fi
 touch /install-pkg-list
 touch /previous-pkg-list
 touch /removed-pkg-list
 touch /failed-pkg-list
-mv /install-pkg-list /usr/local/log/pc-updatemanager/
-mv /previous-pkg-list /usr/local/log/pc-updatemanager/
-mv /removed-pkg-list /usr/local/log/pc-updatemanager/
-mv /failed-pkg-list /usr/local/log/pc-updatemanager/
-pkg-static info > /usr/local/log/pc-updatemanager/current-pkg-list
+mv /install-pkg-list /usr/local/log/trueos-update/
+mv /previous-pkg-list /usr/local/log/trueos-update/
+mv /removed-pkg-list /usr/local/log/trueos-update/
+mv /failed-pkg-list /usr/local/log/trueos-update/
+pkg-static info > /usr/local/log/trueos-update/current-pkg-list
 
 # Update the boot-loader to latest
 update_bootloader
@@ -254,7 +254,7 @@ echo "Updating pkgng config..."
 if [ -e "/var/db/trueos-pkg-ipfs-next" ] ; then
   mv /var/db/trueos-pkg-ipfs-next /var/db/trueos-pkg-ipfs
 fi
-/usr/local/bin/pc-updatemanager syncconf
+/usr/local/bin/trueos-update syncconf
 if [ $? -ne 0 ] ; then exit 1; fi
 
 exit 0

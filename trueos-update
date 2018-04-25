@@ -68,66 +68,6 @@ fi
 ASSUME_ALWAYS_YES="YES"
 export ASSUME_ALWAYS_YES
 
-do_self_bootstrap() {
-  # Only do this as root
-  if [ `id -u` != "0" ] ; then return 0; fi
-
-  # Start the updaters self-update protocol
-  local fbsdmajor=$(uname -r | cut -d '-' -f 1 | cut -d '.' -f 1)
-  local fbsdupdateurl="http://www.trueos.org/updates/pc-updater-${fbsdmajor}.txz"
-  local dlfile=`mktemp /tmp/.pc-updater.XXXXXX`
-  if [ $? -ne 0 ] ; then
-    return 0
-  fi
-  echo -e "Boot-strapping updater...\c"
-
-  # Fetch the updater
-  fetch -m -o ${dlfile} ${fbsdupdateurl} >/dev/null 2>/dev/null
-  if [ $? -ne 0 ] ; then echo "FAILED Fetch" ; return 1; fi
-
-  # Fetch the signature
-  fetch -m -o ${dlfile}.sha1 ${fbsdupdateurl}.sha1 >/dev/null 2>/dev/null
-  if [ $? -ne 0 ] ; then echo "FAILED Fetch2" ; return 1; fi
-
-  # Lets verify the signature of the file
-  openssl dgst -sha1 -verify ${SKEY} \
-	-signature ${dlfile}.sha1 \
-        ${dlfile} >/dev/null 2>/dev/null
-  if [ $? -ne 0 ] ; then echo "FAILED signature" ; return 1; fi
-
-  extractdir=`mktemp -d /tmp/pc-update-XXXXXX`
-  if [ $? -ne 0 ] ; then echo "FAILED - mktemp" ; return 1; fi
-
-  tar xvpf ${dlfile} -C $extractdir >/dev/null 2>/dev/null
-  if [ $? -ne 0 ] ; then echo "FAILED - extract" ; return 1; fi
-
-  # Install it now
-  make -C $extractdir install >/dev/null 2>/dev/null
-  if [ $? -ne 0 ] ; then echo "FAILED - install" ; return 1; fi
-
-  if [ -n "$extractdir" -a "$extractdir" != "/" -a -d "$extractdir" ] ; then
-    rm -rf $extractdir
-  fi
-  echo "OK"
-
-  rm ${dlfile}.sha1 >/dev/null 2>/dev/null
-  rm ${dlfile} >/dev/null 2>/dev/null
-
-  return 0
-}
-
-# Check if we need to try a self-update
-if [ -z "$DISABLE_UPDATE_BOOTSTRAP" -a -n "${1}" -a "${1}" != "doshutdownupdate" -a "$1" != "startupdate" ] ; then
-
-  export DISABLE_UPDATE_BOOTSTRAP="YES"
-
-  do_self_bootstrap
-
-  # Run the original command now
-  ${0} ${@}
-  exit $?
-fi
-
 trueos_ETCCONF="/usr/local/etc/trueos.conf"
 export trueos_ETCCONF
 
@@ -168,7 +108,7 @@ UPDATEDOTD="/usr/local/etc/pcupdate.d"
 # Trigger File for Tray Application
 TRIGGERFILE="/tmp/.sysupdatetraytrigger"
 
-DBDIR="/var/db/pc-updatemanager"
+DBDIR="/var/db/trueos-update"
 INSDIR="${DBDIR}/installed"
 IGNDIR="${DBDIR}/ignored"
 
@@ -185,7 +125,7 @@ PKG_BASE_REPO="trueos-base"
 ISOTMP="/usr/local/tmp/trueos-update.iso"
 
 # The default log file for output messages
-LOGOUT="/var/log/pc-updatemanager.log"
+LOGOUT="/var/log/trueos-update.log"
 
 # Return codes
 PKGUPDATERTN=100
@@ -267,7 +207,7 @@ case $PACKAGE_SET in
 esac
 
 # Set the location for saving program state
-STATEDIR="/var/db/pc-updatemanager"
+STATEDIR="/var/db/trueos-update"
 
 # Function to download a file from remote using fetch
 # Arg1 = Remote File URL
@@ -367,7 +307,7 @@ rc_halt_cleanup()
 }
 
 show_usage() {
-        echo "pc-updatemanager: Usage
+        echo "trueos-update: Usage
 ----
   branches 		- List available system branches
   chbranch <tag>	- Change to new system branch
@@ -742,7 +682,7 @@ parse_mu_update_line()
    echo "TAG: fbsd-${sysUpNVer}"
    echo "VERSION: ${sysUpNVer}" 
    echo ""
-   echo "To install: \"pc-updatemanager install fbsd-${sysUpNVer}\""
+   echo "To install: \"trueos-update install fbsd-${sysUpNVer}\""
    echo ""
    echo ""
 
@@ -789,7 +729,7 @@ parse_sa_update_line()
    echo "DATE: ${saDate}"
    echo "SIZE: ${saSize}Mb" 
    echo " "
-   echo "To install: \"pc-updatemanager install ${saIdent}\""
+   echo "To install: \"trueos-update install ${saIdent}\""
    echo " "
 
    PATCHFOUND="`expr ${PATCHFOUND} + 1`" 
@@ -973,7 +913,7 @@ checkup_pkgs() {
       echo "NAME: System package updates"
       echo "TYPE: PKGUPDATE"
       echo " "
-      echo "To install: \"pc-updatemanager pkgupdate\""
+      echo "To install: \"trueos-update pkgupdate\""
       if [ -e "/usr/local/bin/pc-systemflag" ]; then
         pc-systemflag PKGUPDATE UPDATE #set the system flag that updates available
       fi
@@ -1031,7 +971,7 @@ updates_are_available()
   echo "NAME: System package updates"
   echo "TYPE: PKGUPDATE"
   echo " "
-  echo "To install: \"pc-updatemanager pkgupdate\""
+  echo "To install: \"trueos-update pkgupdate\""
   if [ -e "/usr/local/bin/pc-systemflag" ]; then
     pc-systemflag PKGUPDATE UPDATE #set the system flag that updates available
   fi
@@ -1217,20 +1157,20 @@ mk_pkg_conf()
   fi
 
   # Set the cache directory
-  PKG_CFLAG="-C /var/db/pc-updatemanager/.pkgUpdate.conf"
-  if [ ! -d "/var/db/pc-updatemanager" ] ; then
-    mkdir -p "/var/db/pc-updatemanager"
+  PKG_CFLAG="-C /var/db/trueos-update/.pkgUpdate.conf"
+  if [ ! -d "/var/db/trueos-update" ] ; then
+    mkdir -p "/var/db/trueos-update"
   fi
-  echo "PKG_CACHEDIR: $REALPKGDLCACHE" > /var/db/pc-updatemanager/.pkgUpdate.conf
-  echo "PKG_DBDIR: /var/db/pc-updatemanager/pkgdb" >> /var/db/pc-updatemanager/.pkgUpdate.conf
-  echo "IGNORE_OSVERSION: YES" >> /var/db/pc-updatemanager/.pkgUpdate.conf
+  echo "PKG_CACHEDIR: $REALPKGDLCACHE" > /var/db/trueos-update/.pkgUpdate.conf
+  echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> /var/db/trueos-update/.pkgUpdate.conf
+  echo "IGNORE_OSVERSION: YES" >> /var/db/trueos-update/.pkgUpdate.conf
 
   # If we are starting an upgrade, we need to "prime" the new PKG_DBDIR
   # This is done so if the user decides to use 'pkg' after an update is staged, we don't
   # invalidate all our package repo data
   if [ "$1" = "stage1" ] ; then
-    rm -rf /var/db/pc-updatemanager/pkgdb
-    cp -r /var/db/pkg /var/db/pc-updatemanager/pkgdb
+    rm -rf /var/db/trueos-update/pkgdb
+    cp -r /var/db/pkg /var/db/trueos-update/pkgdb
     if [ $? -ne 0 ] ; then
       echo_log "Failed copying PKG DB..."
       exit 1
@@ -1445,7 +1385,7 @@ dl_pkgs()
   fi
 
   # Fetch the updated version of PKG
-  PTMPDIR="/var/run/pc-updatemanager/pkgbs"
+  PTMPDIR="/var/run/trueos-update/pkgbs"
   rm -rf ${PTMPDIR}
   mkdir -p ${PTMPDIR}
   echo_log "Boot-strapping latest PKGNG"
@@ -1508,7 +1448,7 @@ dl_pkgs()
   fi
 
   # Verify Signature of the fbsd-distrib file
-  openssl dgst -sha1 -verify /usr/local/share/trueos/pc-updatemanager/fbsd-dist.pub  -signature ${REALPKGDLCACHE}/fbsd-distrib.txz.sha1 ${REALPKGDLCACHE}/fbsd-distrib.txz
+  openssl dgst -sha1 -verify /usr/local/share/trueos/trueos-update/fbsd-dist.pub  -signature ${REALPKGDLCACHE}/fbsd-distrib.txz.sha1 ${REALPKGDLCACHE}/fbsd-distrib.txz
   if [ $? -ne 0 ] ; then
      echo_log "Failed verification of fbsd-distrib.txz" >> ${PKGUPGRADELOG}
      exit_err "Failed verification of fbsd-distrib.txz"
@@ -1732,9 +1672,9 @@ do_lite_pkgupdate_chroot()
   fi
 
   # Set the cache directory
-  PKG_CFLAG="-C /var/db/pc-updatemanager/.pkgUpdate.conf"
-  echo "PKG_CACHEDIR: $REALPKGDLCACHE" > ${STAGEMNT}/var/db/pc-updatemanager/.pkgUpdate.conf
-  echo "PKG_DBDIR: /var/db/pc-updatemanager/pkgdb" >> ${STAGEMNT}/var/db/pc-updatemanager/.pkgUpdate.conf
+  PKG_CFLAG="-C /var/db/trueos-update/.pkgUpdate.conf"
+  echo "PKG_CACHEDIR: $REALPKGDLCACHE" > ${STAGEMNT}/var/db/trueos-update/.pkgUpdate.conf
+  echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> ${STAGEMNT}/var/db/trueos-update/.pkgUpdate.conf
 
   echo_log "Starting pkg upgrade..."
   rc_halt_cleanup "chroot ${STAGEMNT} pkg-static unlock -ay" 2>&1 | tee -a ${LOGOUT}
@@ -1776,7 +1716,7 @@ do_lite_pkgupdate_chroot()
   echo_log "Moving updated pkg repo..."
   rm -rf ${STAGEMNT}/var/db/pkg.preUpgrade 2>/dev/null
   mv ${STAGEMNT}/var/db/pkg ${STAGEMNT}/var/db/pkg.preUpgrade
-  mv ${STAGEMNT}/var/db/pc-updatemanager/pkgdb ${STAGEMNT}/var/db/pkg
+  mv ${STAGEMNT}/var/db/trueos-update/pkgdb ${STAGEMNT}/var/db/pkg
 
   # Workaround to issue in FreeBSD pkg base
   chown root:operator ${STAGEMNT}/sbin/shutdown
@@ -1907,8 +1847,8 @@ install_pkgs_chroot()
 umount_stage_be()
 {
   echo_log "Unmounting stage BE..."
-  if [ ! -d "${STAGEMNT}/usr/local/log/pc-updatemanager" ] ; then
-     mkdir -p "${STAGEMNT}/usr/local/log/pc-updatemanager"
+  if [ ! -d "${STAGEMNT}/usr/local/log/trueos-update" ] ; then
+     mkdir -p "${STAGEMNT}/usr/local/log/trueos-update"
   fi
 
   # Save the old BE name
@@ -1916,7 +1856,7 @@ umount_stage_be()
   echo "${oldBE}" > ${STAGEMNT}/var/.lastGoodBE
 
   echo_log "Copy upgrade.log to new BE..."
-  rc_halt_cleanup "cp ${PKGUPGRADELOG} ${STAGEMNT}/usr/local/log/pc-updatemanager/upgrade.log"
+  rc_halt_cleanup "cp ${PKGUPGRADELOG} ${STAGEMNT}/usr/local/log/trueos-update/upgrade.log"
   rc_halt_cleanup "cp ${STATEDIR}/.removed-pkg-list ${STAGEMNT}/removed-pkg-list"
 
   # Figure out the name of the new BE
@@ -2003,7 +1943,7 @@ rotate_log()
      cp ${LOGOUT} ${LOGOUT}.prev
   fi
   if [ `id -u` = "0" ] ; then
-    echo "pc-updatemanager: `date`" > $LOGOUT
+    echo "trueos-update: `date`" > $LOGOUT
   fi
 }
 
@@ -2133,7 +2073,7 @@ shutdown_update() {
   echo "*****************************************************"
   echo "             Starting update process..."
   echo "      !! Please do NOT turn off the computer !!"
-  echo " All logs are stored in /var/log/pc-updatemanager.log"
+  echo " All logs are stored in /var/log/trueos-update.log"
   echo "             ${FKEY}"
   echo "*****************************************************"
 
@@ -2161,7 +2101,7 @@ prep_update_shutdown() {
   ACTIVE_UPDATE=$(sysrc -q -n trueos_active_update)
   if [ -n "$ACTIVE_UPDATE" ] ; then
     echo_log "Your update is staged and ready to install."
-    echo_log "To reboot and begin the update run # pc-updatemanager startupdate"
+    echo_log "To reboot and begin the update run # trueos-update startupdate"
     touch /tmp/.trueos-update-staged
     if [ -e "${NEWPKGLIST}" ] ; then
       cat ${NEWPKGLIST} >> /tmp/.trueos-update-staged
