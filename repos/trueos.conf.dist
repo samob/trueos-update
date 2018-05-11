@@ -1,6 +1,0 @@
-trueos: {
-               url: "http://pkg.cdn.trueos.org/%VERSION%/%ARCH%",
-	       signature_type: "fingerprints",
-               fingerprints: "/usr/share/certs/fingerprints/trueos",
-               enabled: true
-              }

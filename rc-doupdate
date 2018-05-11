@@ -40,7 +40,7 @@ if [ -e "/var/.pc-attempt1" ] ; then
    echo "The previous upgrade attempt failed!"
    echo "Rolling back to last known good BE..."
    oldBE=`cat /var/.lastGoodBE`
-   /etc/beadm activate $oldBE
+   beadm activate $oldBE
    /sbin/reboot
 fi
 
@@ -68,7 +68,7 @@ clear
 run_cmd_wtee "sh /.doPkgUp.sh" "$OLOG"
 if [ $? -ne 0 ] ; then
   oldBE=`cat /var/.lastGoodBE`
-  /etc/beadm activate $oldBE
+  beadm activate $oldBE
   echo "Failed updating! Reverting to last good boot-environment..."
   sleep 10
   /sbin/reboot
@@ -95,7 +95,6 @@ fi
 mv /etc/rc-orig /etc/rc
 rm /etc/rc-update
 rm /etc/rc-doupdate
-rm /etc/beadm
 rm /var/.pc-attempt1
 
 echo "Finished pkg installation.. Preparing to reboot...."
