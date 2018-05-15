@@ -74,8 +74,6 @@ if [ $? -ne 0 ] ; then
   echo "WARNING: Failed removing old packages..."
 fi
 
-cd ${REALPKGDLCACHE}
-
 # Need to export this before installing pkgs, some scripts may try to be interactive
 PACKAGE_BUILDING="YES"
 export PACKAGE_BUILDING
@@ -100,25 +98,21 @@ mkdir -p /etc/runlevels/shutdown 2>/dev/null
 mkdir -p /etc/runlevels/sysinit 2>/dev/null
 mkdir -p /libexec/rc/init.d 2>/dev/null
 
-while read pkgLine
-do
-  pkgOrigin="`echo $pkgLine | cut -d ' ' -f 1`"
-  pkgName="`echo $pkgLine | cut -d ' ' -f 2`"
-  if [ ! -e "${pkgName}" ] ; then
-     echo "No such package: ${pkgName}"
-     echo "No such package: ${pkgName}" >>/removed-pkg-list
-     continue
-  fi
+cd ${REALPKGDLCACHE}
+find . -type file -print > /tmp/.pkgUpList
 
-  echo "Installing $pkgOrigin... ${pkgName}"
-  run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add -f ${pkgName}" "/pkg-add.log"
+while read pkgfile
+do
+  echo "Installing $pkgfile..."
+  run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add -f ${pkgfile}" "/pkg-add.log"
   if [ $? -ne 0 ] ; then
-     echo "Failed installing ${pkgOrigin}"
+     echo "Failed installing ${pkgfile}"
      cat /pkg-add.log
-     echo "Failed installing ${pkgOrigin}" >>/failed-pkg-list
+     echo "Failed installing ${pkgfile}" >>/failed-pkg-list
      cat /pkg-add.log >>/failed-pkg-list
   fi
-done < /install-pkg-list
+done < /tmp/.pkgUpList
+rm /tmp/.pkgUpList
 rm /pkg-add.log
 
 # Update kernel hints
@@ -133,13 +127,7 @@ mv /var/db/trueos-update/pkgdb /var/db/pkg
 if [ ! -d "/var/trueos-update" ] ; then
   mkdir -p /var/trueos-update
 fi
-touch /install-pkg-list
-touch /previous-pkg-list
-touch /removed-pkg-list
 touch /failed-pkg-list
-mv /install-pkg-list /var/trueos-update/
-mv /previous-pkg-list /var/trueos-update/
-mv /removed-pkg-list /var/trueos-update/
 mv /failed-pkg-list /var/trueos-update/
 pkg-static info > /var/trueos-update/current-pkg-list
 

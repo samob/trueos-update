@@ -63,34 +63,23 @@ SKEY="${PROGDIR}/conf/security.key" ; export SKEY
 ASSUME_ALWAYS_YES="YES"
 export ASSUME_ALWAYS_YES
 
-# Directory to store downloaded updates
-DOWNLOADDIR="/usr/local/tmp"
-
 # Get the system version we are checking for updates to
 SYSVER="`uname -r | cut -d '-' -f 1-2`" ; export SYSVER
-
-# Set the config location
-UPDATECONF="${PROGDIR}/conf/sysupdate.conf"
 
 # Set the system arch type
 ARCH=`uname -m`
 
-MUSTAGEDIR="${DOWNLOADDIR}/update-stagedir"
+# Set location of package cache
+PKGDLCACHE="/var/cache/trueos-upgrade"
 
-# Enable ftp passive mode for file transfers
-FTP_PASSIVE_MODE="YES" ; export FTP_PASSIVE_MODE
-
-if [ ! -d "${DOWNLOADDIR}" ]; then mkdir -p ${DOWNLOADDIR}; fi
+# Set the location for saving program state
+STATEDIR="/var/db/trueos-update"
 
 # Location for custom scripts for upgrades
 UPDATEDOTD="/usr/local/etc/pcupdate.d"
 
 # Trigger File for Tray Application
 TRIGGERFILE="/tmp/.sysupdatetraytrigger"
-
-DBDIR="/var/db/trueos-update"
-INSDIR="${DBDIR}/installed"
-IGNDIR="${DBDIR}/ignored"
 
 # PKG_CMD to use
 PKG_CMD="/usr/sbin/pkg-static"
@@ -111,9 +100,6 @@ export IGNORE_OSVERSION="YES"
 ######################################################################
 # Done with config values
 ######################################################################
-
-# Set the location for saving program state
-STATEDIR="/var/db/trueos-update"
 
 # Run-command, halt if command exits with non-0
 rc_halt_cleanup()
@@ -141,11 +127,11 @@ rc_halt_cleanup()
 show_usage() {
         echo "trueos-update: Usage
 ----
-  check		- Check for updates
-  fetch [-f]	- Fetch updates (-f to force a full-reinstall)
-  update        - Shutdown and start a fetched update
+  check		              - Check for updates
+  upgrade [-f <upgrade file>] - Download updates, reboot and upgrade.
+			        When -f <file> is specified, use a local
+			        tarball containing packages for upgrade.
 "
-
 	exit 1
 }
 
@@ -214,7 +200,7 @@ updates_are_available()
   echo "NAME: System package updates"
   echo "TYPE: PKGUPDATE"
   echo " "
-  echo "To install: \"trueos-update fetch\""
+  echo "To install: \"trueos-update upgrade\""
   if [ -e "/usr/local/bin/pc-systemflag" ]; then
     pc-systemflag PKGUPDATE UPDATE #set the system flag that updates available
   fi
@@ -231,7 +217,6 @@ set_update_vars()
   OLDPKGLIST="${STATEDIR}/.pkgUpdateList"
   NEWPKGLIST="${STATEDIR}/.newPkgUpdateList"
   PKGUPGRADELOG="${STATEDIR}/.pkgUpdateLog"
-  PKGDLCACHE="/usr/local/pkg-cache"
   touch ${PKGUPGRADELOG}
   if [ -e "${STATEDIR}/.newfreebsdver" ] ; then
     NEWFREEBSDVERSION=$(cat ${STATEDIR}/.newfreebsdver)
@@ -241,11 +226,6 @@ set_update_vars()
   fi
   if [ -e "${STATEDIR}/.doPkgUpdates" ] ; then
     doPkgUpdates=$(cat ${STATEDIR}/.doPkgUpdates)
-  fi
-  if [ -e "${STATEDIR}/.realpkgdlcache" ] ; then
-    REALPKGDLCACHE=$(cat ${STATEDIR}/.realpkgdlcache)
-  else
-    REALPKGDLCACHE=${PKGDLCACHE}
   fi
 }
 
@@ -258,72 +238,37 @@ check_valid_uptarget()
   fi
 }
 
-update_pkgs_only()
+do_update()
 {
   check_valid_uptarget
-
-  FULLUPDATE="NO"
-  if [ "$1" = "-f" ] ; then
-    FULLUPDATE="YES"
-  fi
-
-  # SaveState
-  echo "$FULLUPDATE" > ${STATEDIR}/.fullupdate
-
-  # Make sure there are really packages to update
-  if [ "$FULLUPDATE" != "YES" ] ; then
-    checkup_pkgs >/dev/null 2>/dev/null
-    if [ $? -eq 0 ] ; then
-       echo "Your packages are already up to date!"
-       exit 0
-    fi
-  fi
 
   touch_updateinprogress
   doPkgUpdates="YES"
 
-  if [ -e "/usr/local/bin/pc-systemflag" ]; then
-    pc-systemflag PKGUPDATE UPDATING #set the system flag that packages are updating
-  fi
-
   set_update_vars
 
-  run_update_pre "PKG"
-  mk_pkg_conf "stage1"
-  build_pkg_list
-  dl_pkgs
+  run_update_pre
+  mk_pkg_conf
 
-  prep_update_shutdown "update_pkgs_only"
-}
+  # If we have a stand-alone update, lets do it, otherwise download
+  if [ -n "$TRUEOS_PKG_TARBALL" ] ; then
+    extract_update_tarball
+  else
+    dl_pkgs
+  fi
 
-update_pkgs_only_stage2() {
-
-  mk_pkg_conf "stage2"
   doPkgUpdates="YES"
 
+  # Setup our new BE
   mk_stage_be
   mount_stage_be
-  if [ "$FULLUPDATE" = "YES" ] ; then
-    # We are doing a forced / full update, lets nuke and re-install all
-    prep_pkgs_chroot
-    prep_rc_script_install
-  else
-    # Lets attempt a traditional PKG upgrade, fallback to full if that fails
-    do_lite_pkgupdate_chroot
-    if [ $? -ne 0 ] ; then
-      echo_log "Failed incremental pkg upgrade! Doing full package upgrade now."
-      prep_pkgs_chroot
-      prep_rc_script_install
-    fi
-  fi
+  prep_pkgs_chroot
+  prep_rc_script_install
   umount_stage_be
   mk_stage_be_default
 
-  if [ -e "/usr/local/bin/pc-systemflag" ]; then
-    pc-systemflag PKGUPDATE SUCCESS #set the system flag that packages are up to date
-  fi
-
-  #run_update_post "PKG"
+  # Lets reboot and do the 2nd stage work
+  reboot
 }
 
 mk_pkg_conf()
@@ -331,8 +276,8 @@ mk_pkg_conf()
   PKG_FLAG=""
   PKG_CFLAG=""
 
-  if [ ! -d "$REALPKGDLCACHE" ] ; then
-    mkdir -p $REALPKGDLCACHE
+  if [ ! -d "$PKGDLCACHE" ] ; then
+    mkdir -p $PKGDLCACHE
   fi
 
   # Set the cache directory
@@ -340,103 +285,24 @@ mk_pkg_conf()
   if [ ! -d "/var/db/trueos-update" ] ; then
     mkdir -p "/var/db/trueos-update"
   fi
-  echo "PKG_CACHEDIR: $REALPKGDLCACHE" > /var/db/trueos-update/.pkgUpdate.conf
+  echo "PKG_CACHEDIR: $PKGDLCACHE" > /var/db/trueos-update/.pkgUpdate.conf
   echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> /var/db/trueos-update/.pkgUpdate.conf
   echo "IGNORE_OSVERSION: YES" >> /var/db/trueos-update/.pkgUpdate.conf
 
   # If we are starting an upgrade, we need to "prime" the new PKG_DBDIR
   # This is done so if the user decides to use 'pkg' after an update is staged, we don't
   # invalidate all our package repo data
-  if [ "$1" = "stage1" ] ; then
-    rm -rf /var/db/trueos-update/pkgdb
-    cp -r /var/db/pkg /var/db/trueos-update/pkgdb
-    if [ $? -ne 0 ] ; then
-      echo_log "Failed copying PKG DB..."
-      exit 1
-    fi
-  fi
-}
-
-build_pkg_list()
-{
-  # Check if any packages are locked and bail if so
-  pkg-static lock --has-locked-packages >/dev/null 2>/dev/null
-  if [ $? -eq 0 ] ; then
-    lockedList=$(pkg-static lock --show-locked -q)
-    if [ -n "$lockedList" ] ; then
-      if [ -e "/usr/local/bin/pc-systemflag" ] ; then
-        pc-systemflag PKGUPDATE ERROR
-      fi
-      exit_err "You have LOCKED packages in your repo! These must be unlocked, or you can run pkg upgrade manually."
-    fi
-  fi
-
-  # Build top-level list of pkgs installed
-  ${PKG_CMD} query -e '%a = 0' '%o %n-%v' | grep -v "^base" | sort > $OLDPKGLIST
-
-  echo "Original top-level packages:" > $PKGUPGRADELOG
-  echo "-----------------------------------------------" >> $PKGUPGRADELOG
-  cat $OLDPKGLIST >> $PKGUPGRADELOG
-  echo "-----------------------------------------------" >> $PKGUPGRADELOG
-}
-
-###
-# Helper to run pkg fetch commands in a loop since timeouts may not be fatal if we try again
-###
-pkg_fetch_verify() {
-
-  local fetchPkg="$1"
-  local fetchPkgFile="$2"
-  local fetchRetries="$3"
-
-  if [ -z "$fetchRetries" ] ; then
-    fetchRetries="0"
-    echo_log "Verifying / fetching packages for $fetchPkg - $fetchPkgFile"
-    echo "Verifying / fetching packages for $fetchPkg - $fetchPkgFile" >> ${PKGUPGRADELOG}
-  fi
-
-  if [ $fetchRetries -gt 3 ] ; then
-     # Exeeded the number of retry attempts
-     # Time to fail out
-     if [ -e "/usr/local/bin/pc-systemflag" ] ; then
-       pc-systemflag PKGUPDATE ERROR
-     fi
-     echo_log "Failed fetching: $fetchPkg - $fetchPkgFile" >> ${PKGUPGRADELOG}
-     exit_err "Failed fetching: $fetchPkg - $fetchPkgFile"
-  fi
-
-  # Increment number of retry attempts
-  fetchRetries=$(expr $fetchRetries + 1)
-
-  # Attempt to fetch the package
-  run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -U -d -y $fetchPkg" "${PKGUPGRADELOG}"
-  _err=$?
-  tail -n 1 ${PKGUPGRADELOG} | grep -q -e "failed checksum" -e "timed out"
-  if [ $_err -ne 0 -o $? -eq 0 ]; then
-    pkg_fetch_verify "$fetchPkg" "$fetchPkgFile" "$fetchRetries"
-  fi
-
-  REALPKGDLCACHE="${PKGDLCACHE}"
-  # PKGNG lies, we need to verify if the package was really downloaded
-  if [ ! -e "${PKGDLCACHE}/${fetchPkgFile}" ] ; then
-     # Also check All/ since pkg docs are rather unclear about if that will be used or not
-     if [ -e "${PKGDLCACHE}/All/${fetchPkgFile}" ] ; then
-        REALPKGDLCACHE="${PKGDLCACHE}/All"
-     else
-        pkg_fetch_verify "$fetchPkg" "$fetchPkgFile" "$fetchRetries"
-     fi
+  rm -rf /var/db/trueos-update/pkgdb
+  cp -r /var/db/pkg /var/db/trueos-update/pkgdb
+  if [ $? -ne 0 ] ; then
+    echo_log "Failed copying PKG DB..."
+    exit 1
   fi
 }
 
 dl_pkgs()
 {
   unset OBSOLETE_PACKAGES
-
-  # Setup the removedpkglist
-  if [ ! -e "${STATEDIR}/.removed-pkg-list" ] ; then
-    rm ${STATEDIR}/.removed-pkg-list
-  fi
-  touch ${STATEDIR}/.removed-pkg-list
 
   # Update the DB first
   echo_log "Updating the package repo database..."
@@ -450,64 +316,8 @@ dl_pkgs()
   sync
   sleep 2
 
-  if [ -e "$NEWPKGLIST" ] ; then rm $NEWPKGLIST; fi
-  touch ${NEWPKGLIST}
-
-  ###
-  # Now start fetching all the update packages
-  ###
-  while read pkgLine
-  do
-    pkgOrigin="`echo $pkgLine | cut -d ' ' -f 1`"
-    pkgName="`echo $pkgLine | cut -d ' ' -f 2`"
-
-    # Check if this pkg exists in the new repo
-    unset FETCHFILENAME
-    echo_log "Determining package name for: ${pkgOrigin}"
-    echo "Determining package name for ${pkgOrigin}" >> ${PKGUPGRADELOG}
-    FETCHFILENAME="`${PKG_CMD} ${PKG_FLAG} rquery -U '%n-%v' $pkgOrigin 2>/dev/null | head -n 1`"
-    if [ -z "$FETCHFILENAME" ] ; then
-       OBSOLETE_PACKAGES="${pkgOrigin} ${OBSOLETE_PACKAGES}"
-       echo_log "*****"
-       echo_log "No such package in new repo: $pkgOrigin"
-       echo "*****" >> $PKGUPGRADELOG
-       echo "No such package in new repo: $pkgOrigin" >> $PKGUPGRADELOG
-       echo "$pkgOrigin" >> ${STATEDIR}/.removed-pkg-list
-       echo "*****" >> $LOGOUT
-       echo "*****" >> $PKGUPGRADELOG
-       continue
-    fi
-    FETCHFILENAME="${FETCHFILENAME}.txz"
-
-    # Download
-    pkg_fetch_verify "$pkgOrigin" "$FETCHFILENAME"
-
-    echo "$pkgOrigin $FETCHFILENAME" >> $NEWPKGLIST
-  done < $OLDPKGLIST
-
-  # Save State of REALPKGDLCACHE
-  echo "${REALPKGDLCACHE}" > ${STATEDIR}/.realpkgdlcache
-
-  # Doing a world upgrade, lets fetch FreeBSD packages
-  echo_log "Verifying / fetching packages for FreeBSD Base"
-  echo "Verifying / fetching packages for FreeBSD Base" >> ${PKGUPGRADELOG}
-  attempts=0
-  while :
-  do
-    attempts=$(expr $attempts + 1)
-    run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -U -d -y -g FreeBSD-*" "${PKGUPGRADELOG}"
-    _err=$?
-    tail -n 1 ${PKGUPGRADELOG} | grep -q -e "failed checksum" -e "timed out" -e "not found" -e "No packages"
-    if [ $_err -ne 0 -o $? -eq 0 ]; then
-      if [ $attempts -gt 3 ] ; then
-        echo_log "*****" ${PKGUPGRADELOG}
-        echo_log "Failed fetching: FreeBSD Base" >> ${PKGUPGRADELOG}
-        exit_err "Failed fetching: FreeBSD Base"
-      fi
-    else
-      break
-    fi
-  done
+  # Fetch all the packages
+  run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -u" "${PKGUPGRADELOG}"
 
   echo_log "-----------------------------------------------"
   echo "-----------------------------------------------" >> ${PKGUPGRADELOG}
@@ -597,87 +407,6 @@ mount_stage_be()
   ${PKG_CMD} info >${STAGEMNT}/previous-pkg-list
 }
 
-do_lite_pkgupdate_chroot()
-{
-  # Need to export this before cleaning pkgs, some scripts may try to be interactive
-  PACKAGE_BUILDING="YES"
-  export PACKAGE_BUILDING
-
-  # This sucks, but we have to do it. If FreeBSD version gets bumped AT ALL, we need to do full-update
-  CRUNTIME="`${PKG_CMD} ${PKG_FLAG} query '%n-%v' FreeBSD-Runtime-development 2>/dev/null | head -n 1`"
-  NRUNTIME="`${PKG_CMD} ${PKG_FLAG} rquery -U '%n-%v' FreeBSD-Runtime-development 2>/dev/null | head -n 1`"
-  if [ "$CRUNTIME" != "$NRUNTIME" ] ; then
-    echo_log "FreeBSD base system update detected!"
-    echo_log "Falling back to full upgrade"
-    return 1
-  fi
-
-  # Save the current ABI version of the system
-  CURRENTABI=`grep "^#define __FreeBSD_version" /usr/include/sys/param.h | awk '{print $3}'`
-
-  # Locate the right FreeBSD-runtime-development
-  RUNTIMEFILE="`${PKG_CMD} ${PKG_FLAG} rquery -U '%n-%v' FreeBSD-Runtime-development 2>/dev/null | head -n 1`.txz"
-  if [ ! -e "${REALPKGDLCACHE}/${RUNTIMEFILE}" ] ; then
-    echo_log "Can't locate FreeBSD-Runtime-development package: $RUNTIMEFILE"
-    return 1;
-  fi
-
-  # Extract the /usr/include/sys/param.h file
-  rm -rf /tmp/pc-param-check
-  mkdir /tmp/pc-param-check
-  tar xvpf ${REALPKGDLCACHE}/${RUNTIMEFILE} -C /tmp/pc-param-check -s "|/usr/include/sys||" /usr/include/sys/param.h >/dev/null 2>/dev/null
-  if [ ! -e "/tmp/pc-param-check/param.h" ] ; then
-    echo_log "Unable to locate param.h from ${REALPKGDLCACHE}/${RUNTIMEFILE}"
-    return 1;
-  fi
-
-  # Check the ABI version of the new system, if changed we need to fallback to a full install
-  NEWABI=`grep "^#define __FreeBSD_version" /tmp/pc-param-check/param.h | awk '{print $3}'`
-  rm -rf /tmp/pc-param-check
-  if [ "$CURRENTABI" != "$NEWABI" ] ; then
-    echo_log "ABI Change detected, Old: $CURRENTABI New: $NEWABI"
-    echo_log "Falling back to full upgrade"
-    return 1
-  fi
-
-  echo_log "Starting pkg upgrade..."
-  rc_halt_cleanup "chroot ${STAGEMNT} pkg-static unlock -ay" 2>&1 | tee -a ${LOGOUT}
-
-  # Bad PKG, bad!
-  chroot ${STAGEMNT} pkg-static ${PKG_CFLAG} ${PKG_FLAG} delete -y javavmwrapper-2.5_1 2>/dev/null >/dev/null
-  chroot ${STAGEMNT} pkg-static ${PKG_CFLAG} ${PKG_FLAG} delete -y javavmwrapper-2.5_2 2>/dev/null >/dev/null
-
-  echo_log "Running: pkg-static upgrade -U -y"
-  rc_nohalt "chroot ${STAGEMNT} pkg-static ${PKG_CFLAG} ${PKG_FLAG} upgrade -U -y" 2>&1 | tee -a ${LOGOUT} | tee -a ${LOGOUT}.tmp
-  _err=$STATUS
-  if [ $_err -ne 0 ] ; then
-    echo_log "Failed running pkg-static upgrade -U -y"
-    rm ${LOGOUT}.tmp
-    return 1
-  fi
-
-  # We've seen cases of pkg returning 0, but really it failed... Lets try to catch this
-  cat ${LOGOUT}.tmp | grep -q "Cannot solve problem using SAT"
-  if [ $? -eq 0 ] ; then
-    rm ${LOGOUT}.tmp
-    return 1
-  fi
-
-  # Workaround to issue in FreeBSD pkg base
-  chown root:operator ${STAGEMNT}/sbin/shutdown
-  chmod 4554 ${STAGEMNT}/sbin/shutdown
-
-  # Boot gets cranky if these go away
-  mkdir -p ${STAGEMNT}/compat/linux/proc 2>/dev/null
-  mkdir -p ${STAGEMNT}/compat/linux/sys 2>/dev/null
-  mkdir -p ${STAGEMNT}/compat/linux/usr 2>/dev/null
-  mkdir -p ${STAGEMNT}/compat/linux/dev 2>/dev/null
-  mkdir -p ${STAGEMNT}/compat/linux/run 2>/dev/null
-
-  rm ${LOGOUT}.tmp
-  return 0
-}
-
 prep_pkgs_chroot()
 {
   # Now start our chroot commands
@@ -691,6 +420,9 @@ prep_pkgs_chroot()
     echo_log "Missing /usr/sbin/pkg-static binary!"
     exit 1
   fi
+
+  # Unlock all packages first
+  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} unlock -ay >>${LOGOUT} 2>>${LOGOUT}
 
   # Upgrade the base system packages first
   echo_log "Upgrading base packages..."
@@ -715,7 +447,6 @@ prep_pkgs_chroot()
   fi
 
   # Work around an issue with some kmod pkgs which can hang the box before upgrade happens
-  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} unlock -ay >>${LOGOUT} 2>>${LOGOUT}
   ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} delete -yg '*kmod*' >>${LOGOUT} 2>>${LOGOUT}
   ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} delete -yg '*nvidia-driver*' >>${LOGOUT} 2>>${LOGOUT}
 
@@ -745,7 +476,6 @@ umount_stage_be()
 
   echo_log "Copy upgrade.log to new BE..."
   rc_halt_cleanup "cp ${PKGUPGRADELOG} ${STAGEMNT}/var/trueos-update/upgrade.log"
-  rc_halt_cleanup "cp ${STATEDIR}/.removed-pkg-list ${STAGEMNT}/removed-pkg-list"
 
   # Figure out the name of the new BE
   echo_log "Determine new BE name..."
@@ -774,20 +504,10 @@ mk_stage_be_default()
   rc_halt "beadm rename $STAGEBE $newBEName"
   # Rename the nickname
   rc_halt "beadm activate $newBEName"
-
-  # Only update grub if its installed
-  if [ -e "/boot/grub/grub.cfg" ] ; then
-    rc_halt "grub-mkconfig -o /boot/grub/grub.cfg"
-  fi
 }
 
 touch_updateinprogress()
 {
-   if [ -e "/tmp/.rebootRequired" ] ; then
-      if [ "`cat /tmp/.rebootRequired`" = "`who -b`" ] ; then
-        exit_err "Waiting to reboot from previous update!"
-      fi
-   fi
    if [ -e "/tmp/.updateInProgress" ] ; then
       pgrep -F /tmp/.updateInProgress >/dev/null 2>/dev/null
       if [ $? -eq 0 ] ; then
@@ -795,15 +515,6 @@ touch_updateinprogress()
       fi
    fi
    echo "$$" > /tmp/.updateInProgress
-}
-
-touch_reboot()
-{
-   rm /tmp/.updateInProgress
-   who -b >  /tmp/.rebootRequired
-   if [ -e "${NEWPKGLIST}" ] ; then
-     cat ${NEWPKGLIST} >> /tmp/.rebootRequired
-   fi
 }
 
 require_root()
@@ -855,104 +566,6 @@ run_update_post() {
        echo "WARNING: Failed running post-update script: $post"
     fi
   done
-}
-
-countdown()
-{
-        local SECONDS=$1
-        local START=$(date +%s)
-        local END=$(expr $START + $SECONDS)
-        local CUR=$START
-
-        while [ $CUR -lt $END ]
-        do
-                CUR=$(date +%s)
-                LEFT=$(expr $END - $CUR)
-
-                printf "\r%02d" \
-                        $(expr $LEFT % 60)
-
-                sleep 1
-        done
-        echo "        "
-}
-
-# Start the 2nd stage update
-shutdown_update() {
-
-  # Set the env vars
-  TERM="cons25" ; export TERM
-  PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin" ; export PATH
-
-  # Clear the screen
-  clear
-
-  # Get the type of update we are doing
-  UPTYPE=$(cat ${STATEDIR}/shutdown-update-trigger)
-
-  # Remove the update trigger, so we don't run on a 2nd shutdown
-  # after a crash / hard power off
-  rm ${STATEDIR}/shutdown-update-trigger
-
-  # Let the GUI know we have started a shutdown
-  touch ${STATEDIR}/.doingShutdownUpdate
-
-  # Kill all desktop logins
-  touch /tmp/.PCDMstop
-  killall -9 pcdm-session
-  killall -9 PCDM-session
-
-  # Load State
-  set_update_vars
-
-  # Determine the tty to display details on
-  if [ -e "/dev/ttyv1" ] ; then
-    TTY="/dev/ttyv1"
-    FKEY="(Alt-F2 for details)"
-  elif [ -e "/dev/ttyv2" ] ; then
-    TTY="/dev/ttyv2"
-    FKEY="(Alt-F3 for details)"
-  else
-    TTY="/dev/null"
-    FKEY=""
-  fi
-
-  # Unmount remote filesystems to prevent the update process from
-  # hanging if the remote server goes down.
-  umount -A -t nfs,smbfs,cifs
-
-  # Display whats going on:
-  echo "*****************************************************"
-  echo "             Starting update process..."
-  echo "      !! Please do NOT turn off the computer !!"
-  echo " All logs are stored in /var/log/trueos-update.log"
-  echo "             ${FKEY}"
-  echo "*****************************************************"
-
-  update_pkgs_only_stage2 >${TTY} 2>${TTY}
-
-  echo ""
-  echo "*****************************************************"
-  echo "                 Update Finished"
-  echo "*****************************************************"
-  exit 0
-}
-
-prep_update_shutdown() {
-  echo "$1" > ${STATEDIR}/shutdown-update-trigger
-  ACTIVE_UPDATE=$(sysrc -q -n trueos_active_update)
-  if [ -n "$ACTIVE_UPDATE" ] ; then
-    echo_log "Your update is staged and ready to install."
-    echo_log "To reboot and begin the update run # trueos-update startupdate"
-    touch /tmp/.trueos-update-staged
-    if [ -e "${NEWPKGLIST}" ] ; then
-      cat ${NEWPKGLIST} >> /tmp/.trueos-update-staged
-    fi
-  else
-    touch_reboot
-    echo_log "Your update is ready to install. Please shutdown to finish the update process."
-  fi
-  exit 0
 }
 
 # Check if a value is a number
@@ -1045,24 +658,13 @@ while [ $# -gt 0 ] ; do
 	       exit $?
                break
                ;;
-        fetch) require_root
+      upgrade) require_root
 	       rotate_log
-	       update_pkgs_only "$2"
+	       if [ -n "$2" ] ; then TRUEOS_PKG_TARBALL="$2" ; fi
+	       do_update
 	       exit 0
                break
                ;;
-       update) if [ ! -e "/tmp/.trueos-update-staged" ] ; then
-	            echo "No update staged. Please run trueos-update fetch first"
-		    exit 1
-	       fi
-	       echo "Preparing to reboot and upgrade!"
-	       touch_reboot
-	       sleep 2
-	       shutdown -r now
-	       ;;
-doshutdownupdate) require_root
-                  shutdown_update
-                  ;;
 	*) show_usage ;;
    esac
    shift
