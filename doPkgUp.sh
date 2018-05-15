@@ -104,7 +104,7 @@ find . -type file -print > /tmp/.pkgUpList
 while read pkgfile
 do
   echo "Installing $pkgfile..."
-  run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add -f ${pkgfile}" "/pkg-add.log"
+  run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add ${pkgfile}" "/pkg-add.log"
   if [ $? -ne 0 ] ; then
      echo "Failed installing ${pkgfile}"
      cat /pkg-add.log

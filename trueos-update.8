@@ -22,18 +22,18 @@ Here are the available commands:
 .Bl -tag -width indent
 .It Ic check
 Checks for updates, will return if packages have updates available.
-.It Ic fetch Ar -f
-Fetches package updates. Invoking the
+.It Ic upgrade Ar -f
+Starts a system upgrade. Packages will be downloaded, the system rebooted and
+then upgraded. If the
 .Fl f
-flag forces package updates, restoring all packages to a pristine working condition.
-.It Ic update
-Starts a staged update previously fetched by running the fetch sub-command.
-The system will be rebooted and the update will begin in a new boot-environment.
+flag is pointing to an upgrade tarball, it will be used instead of fetching
+the packages from the update server. WARNING: This will reboot your
+system as part of the update process.
 .\"----------------------------------------------------------------
 .Sh EXAMPLES
 .Bl -tag -width indent
-.It trueos-update fetch -f
-Force an update to all installed packages.
+.It trueos-update upgrade
+Start an update on the system.
 .\"----------------------------------------------------------------
 .Sh SEE ALSO
 .Xr beadm(1),
