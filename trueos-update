@@ -215,7 +215,6 @@ set_update_vars()
   STAGEBE="updaterstage"
   STAGEMNT="/.updateStage"
   OLDPKGLIST="${STATEDIR}/.pkgUpdateList"
-  NEWPKGLIST="${STATEDIR}/.newPkgUpdateList"
   PKGUPGRADELOG="${STATEDIR}/.pkgUpdateLog"
   touch ${PKGUPGRADELOG}
   if [ -e "${STATEDIR}/.newfreebsdver" ] ; then
@@ -398,9 +397,6 @@ mount_stage_be()
 
   # Mount the BE
   rc_halt "beadm mount $STAGEBE $STAGEMNT"
-  if [ "$doPkgUpdates" = "YES" ] ; then
-    rc_halt_cleanup "cp $NEWPKGLIST ${STAGEMNT}/install-pkg-list"
-  fi
   rc_halt_cleanup "mount -t devfs devfs ${STAGEMNT}/dev"
 
   # Save list of previous packages
