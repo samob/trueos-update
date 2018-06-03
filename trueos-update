@@ -72,7 +72,7 @@ ARCH=`uname -m`
 # Set location of package cache
 PKGDLCACHE="/var/cache/trueos-upgrade"
 
-# Set the location for saving program state
+# Set location for our state files
 STATEDIR="/var/db/trueos-update"
 
 # Location for custom scripts for upgrades
@@ -288,6 +288,10 @@ mk_pkg_conf()
   echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> /var/db/trueos-update/.pkgUpdate.conf
   echo "IGNORE_OSVERSION: YES" >> /var/db/trueos-update/.pkgUpdate.conf
 
+
+  REALPKGDLCACHE=$(${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} config PKG_CACHEDIR)
+
+  # Set the location for saving program state
   # If we are starting an upgrade, we need to "prime" the new PKG_DBDIR
   # This is done so if the user decides to use 'pkg' after an update is staged, we don't
   # invalidate all our package repo data
@@ -299,9 +303,84 @@ mk_pkg_conf()
   fi
 }
 
+build_pkg_list()
+{
+  # Check if any packages are locked and bail if so
+  pkg-static lock --has-locked-packages >/dev/null 2>/dev/null
+  if [ $? -eq 0 ] ; then
+    lockedList=$(pkg-static lock --show-locked -q | grep -v "trueos-")
+    if [ -n "$lockedList" ] ; then
+      if [ -e "/usr/local/bin/pc-systemflag" ] ; then
+        pc-systemflag PKGUPDATE ERROR
+      fi
+      exit_err "You have LOCKED packages in your repo! These must be unlocked, or you can run pkg upgrade manually."
+    fi
+  fi
+
+  # Build top-level list of pkgs installed
+  ${PKG_CMD} query -e '%a = 0' '%o %n-%v' | grep -v "^base " | sort > $OLDPKGLIST
+
+  echo "Original top-level packages:" > $PKGUPGRADELOG
+  echo "-----------------------------------------------" >> $PKGUPGRADELOG
+  cat $OLDPKGLIST >> $PKGUPGRADELOG
+  echo "-----------------------------------------------" >> $PKGUPGRADELOG
+}
+
+###
+# Helper to run pkg fetch commands in a loop since timeouts may not be fatal if we try again
+###
+pkg_fetch_verify() {
+
+  local fetchPkg="$1"
+  local fetchPkgFile="$2"
+  local fetchRetries="$3"
+
+  if [ -z "$fetchRetries" ] ; then
+    fetchRetries="0"
+    echo_log "Verifying / fetching packages for $fetchPkg - $fetchPkgFile"
+    echo "Verifying / fetching packages for $fetchPkg - $fetchPkgFile" >> ${PKGUPGRADELOG}
+  fi
+
+  if [ $fetchRetries -gt 3 ] ; then
+     # Exeeded the number of retry attempts
+     # Time to fail out
+     echo_log "Failed fetching: $fetchPkg - $fetchPkgFile" >> ${PKGUPGRADELOG}
+     exit_err "Failed fetching: $fetchPkg - $fetchPkgFile"
+  fi
+
+  # Increment number of retry attempts
+  fetchRetries=$(expr $fetchRetries + 1)
+
+  # Attempt to fetch the package
+  run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -U -d -y $fetchPkg" "${PKGUPGRADELOG}"
+  _err=$?
+  tail -n 1 ${PKGUPGRADELOG} | grep -q -e "failed checksum" -e "timed out"
+  if [ $_err -ne 0 -o $? -eq 0 ]; then
+    pkg_fetch_verify "$fetchPkg" "$fetchPkgFile" "$fetchRetries"
+  fi
+
+  # PKGNG lies, we need to verify if the package was really downloaded
+  if [ ! -e "${REALPKGDLCACHE}/${fetchPkgFile}" ] ; then
+     # Check if the files ended up in a /All subdir
+     if [ -e "${REALPKGDLCACHE}/All/${fetchPkgFile}" ] ; then
+        REALPKGDLCACHE="${REALPKGDLCACHE}/All"
+     else
+        pkg_fetch_verify "$fetchPkg" "$fetchPkgFile" "$fetchRetries"
+     fi
+  fi
+}
+
 dl_pkgs()
 {
   unset OBSOLETE_PACKAGES
+
+  build_pkg_list
+
+  # Setup the removedpkglist
+  if [ ! -e "${STATEDIR}/.removed-pkg-list" ] ; then
+    rm ${STATEDIR}/.removed-pkg-list
+  fi
+  touch ${STATEDIR}/.removed-pkg-list
 
   # Update the DB first
   echo_log "Updating the package repo database..."
@@ -315,8 +394,64 @@ dl_pkgs()
   sync
   sleep 2
 
-  # Fetch all the packages
-  run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -u" "${PKGUPGRADELOG}"
+  if [ -e "$NEWPKGLIST" ] ; then rm $NEWPKGLIST; fi
+  touch ${NEWPKGLIST}
+
+  ###
+  # Now start fetching all the update packages
+  ###
+  while read pkgLine
+  do
+    pkgOrigin="`echo $pkgLine | cut -d ' ' -f 1`"
+    pkgName="`echo $pkgLine | cut -d ' ' -f 2`"
+
+    # Check if this pkg exists in the new repo
+    unset FETCHFILENAME
+    echo_log "Determining package name for: ${pkgOrigin}"
+    echo "Determining package name for ${pkgOrigin}" >> ${PKGUPGRADELOG}
+    FETCHFILENAME="`${PKG_CMD} ${PKG_FLAG} rquery -U '%n-%v' $pkgOrigin 2>/dev/null | head -n 1`"
+    if [ -z "$FETCHFILENAME" ] ; then
+       OBSOLETE_PACKAGES="${pkgOrigin} ${OBSOLETE_PACKAGES}"
+       echo_log "*****"
+       echo_log "No such package in new repo: $pkgOrigin"
+       echo "*****" >> $PKGUPGRADELOG
+       echo "No such package in new repo: $pkgOrigin" >> $PKGUPGRADELOG
+       echo "$pkgOrigin" >> ${STATEDIR}/.removed-pkg-list
+       echo "*****" >> $LOGOUT
+       echo "*****" >> $PKGUPGRADELOG
+       continue
+    fi
+    FETCHFILENAME="${FETCHFILENAME}.txz"
+
+    # Download
+    pkg_fetch_verify "$pkgOrigin" "$FETCHFILENAME"
+
+    echo "$pkgOrigin $FETCHFILENAME" >> $NEWPKGLIST
+  done < $OLDPKGLIST
+
+  # Save State of REALPKGDLCACHE
+  echo "${REALPKGDLCACHE}" > ${STATEDIR}/.realpkgdlcache
+
+  # Doing a world upgrade, lets fetch FreeBSD packages
+  echo_log "Verifying / fetching packages for FreeBSD Base"
+  echo "Verifying / fetching packages for FreeBSD Base" >> ${PKGUPGRADELOG}
+  attempts=0
+  while :
+  do
+    attempts=$(expr $attempts + 1)
+    run_cmd_wtee "${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} fetch -U -d -y -g FreeBSD-*" "${PKGUPGRADELOG}"
+    _err=$?
+    tail -n 1 ${PKGUPGRADELOG} | grep -q -e "failed checksum" -e "timed out" -e "not found" -e "No packages"
+    if [ $_err -ne 0 -o $? -eq 0 ]; then
+      if [ $attempts -gt 3 ] ; then
+        echo_log "*****" ${PKGUPGRADELOG}
+        echo_log "Failed fetching: FreeBSD Base" >> ${PKGUPGRADELOG}
+        exit_err "Failed fetching: FreeBSD Base"
+      fi
+    else
+      break
+    fi
+  done
 
   echo_log "-----------------------------------------------"
   echo "-----------------------------------------------" >> ${PKGUPGRADELOG}
