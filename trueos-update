@@ -215,6 +215,7 @@ set_update_vars()
   STAGEBE="updaterstage"
   STAGEMNT="/.updateStage"
   OLDPKGLIST="${STATEDIR}/.pkgUpdateList"
+  NEWPKGLIST="${STATEDIR}/.newPkgList"
   PKGUPGRADELOG="${STATEDIR}/.pkgUpdateLog"
   touch ${PKGUPGRADELOG}
   if [ -e "${STATEDIR}/.newfreebsdver" ] ; then
@@ -377,7 +378,7 @@ dl_pkgs()
   build_pkg_list
 
   # Setup the removedpkglist
-  if [ ! -e "${STATEDIR}/.removed-pkg-list" ] ; then
+  if [ -e "${STATEDIR}/.removed-pkg-list" ] ; then
     rm ${STATEDIR}/.removed-pkg-list
   fi
   touch ${STATEDIR}/.removed-pkg-list
