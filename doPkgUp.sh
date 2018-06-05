@@ -104,6 +104,7 @@ find . -type file -print > /tmp/.pkgUpList
 while read pkgfile
 do
   echo "Installing $pkgfile..."
+  if [ -e '/pkg-add.log' ]; then rm /pkg-add.log; fi
   run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add ${pkgfile}" "/pkg-add.log"
   if [ $? -ne 0 ] ; then
      echo "Failed installing ${pkgfile}"
@@ -123,10 +124,14 @@ rm -rf /var/db/pkg.preUpgrade 2>/dev/null
 mv /var/db/pkg /var/db/pkg.preUpgrade
 mv /var/db/trueos-update/pkgdb /var/db/pkg
 
+# Clean the pkg cache
+rm -rf /var/cache/trueos-update
+
 # Save the log files
 if [ ! -d "/var/trueos-update" ] ; then
   mkdir -p /var/trueos-update
 fi
+
 touch /failed-pkg-list
 mv /failed-pkg-list /var/trueos-update/
 pkg-static info > /var/trueos-update/current-pkg-list
