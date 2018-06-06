@@ -99,12 +99,24 @@ mkdir -p /etc/runlevels/sysinit 2>/dev/null
 mkdir -p /libexec/rc/init.d 2>/dev/null
 
 cd ${REALPKGDLCACHE}
-find . -type file -print > /tmp/.pkgUpList
+find . -type file -print | sort > /tmp/.pkgUpList
 
 while read pkgfile
 do
   echo "Installing $pkgfile..."
   if [ -e '/pkg-add.log' ]; then rm /pkg-add.log; fi
+
+  # Get the pkg origin
+  ORIGIN=$(pkg-static ${PKG_CFLAG} ${PKG_FLAG} info -o -F ${pkgfile} | awk '{print $2}')
+
+  # If this is empty or for base we can skip
+  if [ -z "$ORIGIN" -o "$ORIGIN" = "base" ] ; then continue ; fi
+
+  # Is the package already installed?
+  pkg-static info -e ${ORIGIN}
+  if [ $? -eq 0 ] ; then continue ; fi
+
+  # Install the package
   run_cmd_wtee "pkg-static ${PKG_CFLAG} ${PKG_FLAG} add ${pkgfile}" "/pkg-add.log"
   if [ $? -ne 0 ] ; then
      echo "Failed installing ${pkgfile}"
