@@ -217,6 +217,7 @@ set_update_vars()
   OLDPKGLIST="${STATEDIR}/.pkgUpdateList"
   NEWPKGLIST="${STATEDIR}/.newPkgList"
   PKGUPGRADELOG="${STATEDIR}/.pkgUpdateLog"
+  DLREV="${STATEDIR}/.dlrevision"
   touch ${PKGUPGRADELOG}
   if [ -e "${STATEDIR}/.newfreebsdver" ] ; then
     NEWFREEBSDVERSION=$(cat ${STATEDIR}/.newfreebsdver)
@@ -390,8 +391,12 @@ dl_pkgs()
   sleep 2
 
   # Clean pkgs
-  echo_log "Cleaning old pkg upgrade cache..."
-  rm -rf ${PKGDLCACHE}
+  SYSREV=$(${PKG_CMD} ${PKG_FLAG} rquery '%v' FreeBSD-runtime | head -n 1)
+  if [ -e "${DLREV}" -a "$(cat ${DLREV})" != "${SYSREV}" ] ; then
+    echo_log "Cleaning stale pkg upgrade cache..."
+    rm -rf ${PKGDLCACHE}
+  fi
+  echo "$SYSREV" > ${DLREV}
 
   if [ -e "$NEWPKGLIST" ] ; then rm $NEWPKGLIST; fi
   touch ${NEWPKGLIST}
