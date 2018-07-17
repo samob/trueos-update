@@ -386,7 +386,7 @@ dl_pkgs()
 
   # Update the DB first
   echo_log "Updating the package repo database..."
-  ${PKG_CMD} ${PKG_FLAG} update -f >/dev/null 2>/dev/null
+  ${PKG_CMD} ${PKG_CFLAG} ${PKG_FLAG} update -f >/dev/null 2>/dev/null
   sync
   sleep 2
 
