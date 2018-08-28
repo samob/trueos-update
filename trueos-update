@@ -560,6 +560,17 @@ prep_pkgs_chroot()
   # Unlock all packages first
   ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} unlock -ay >>${LOGOUT} 2>>${LOGOUT}
 
+  # Check if we have -devel or -debug packages and re-install them
+  DEVPKG="NO"
+  DEBUGPKG="NO"
+  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} info -g FreeBSD-\* | grep -q -e '-development-'
+  if [ $? -eq 0 ] ; then
+    DEVPKG="YES"
+  fi
+  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} info -g FreeBSD-\* | grep -q -e '-debug-'
+  if [ $? -eq 0 ] ; then
+    DEBUGPKG="YES"
+  fi
 
   # Remove *ALL* the packages, we need a clean slate to avoid pkg conflicts going sideways
   ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} delete -yg \* >>${LOGOUT} 2>>${LOGOUT}
@@ -569,12 +580,36 @@ prep_pkgs_chroot()
   fi
 
   # Install the base system packages first
-  echo_log "Upgrading base packages..."
-  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -yfg 'FreeBSD-*' >>${LOGOUT} 2>>${LOGOUT}
-  if [ $? -ne 0 ] ; then
-    echo_log "FAILED INSTALLING world base packages"
-    exit 1
-  fi
+  echo_log "Installing base packages..."
+  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} search -g 'FreeBSD-*' \
+	| awk '{print $1}'  > /tmp/.fpkg.$$
+  while read fpkg
+  do
+    echo "$fpkg" | grep -q -e '-development-'
+    if [ $? -eq 0 -a "$DEVPKG" = "YES" ] ; then
+      echo_log "Skipping DEVELOPMENT package: $fpkg"
+      continue
+    fi
+    if [ $? -eq 0 -a "$DEBUGPKG" = "YES" ] ; then
+      echo_log "Skipping DEBUG package: $fpkg"
+      continue
+    fi
+
+    ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} info -q $fpkg
+    if [ $? -eq 0 ] ; then
+      echo_log "Skipping installed package: $fpkg"
+      continue
+    fi
+
+    # Install the base system package now
+    ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -yf $fpkg >>${LOGOUT} 2>>${LOGOUT}
+    if [ $? -ne 0 ] ; then
+      echo_log "FAILED INSTALLING world base package: $fpkg"
+      rm /tmp/.fpkg.$$
+      exit 1
+    fi
+  done < /tmp/.fpkg.$$
+  rm /tmp/.fpkg.$$
 
   # Set all pkgs as not auto-installed, so pkg autoremove doesn't touch them
   echo_log "Marking FreeBSD packages as not auto-installed"
@@ -582,12 +617,8 @@ prep_pkgs_chroot()
 
   # Check if something went horribly wrong
   if [ ! -e "${STAGEMNT}/bin/sh" ] ; then
-     ABI_FLAG="-o ABI=freebsd:`uname -r | cut -c 1-2`:`uname -m`"
-     ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -yfg 'FreeBSD-*' >>${LOGOUT} 2>>${LOGOUT}
-     if [ ! -e "${STAGEMNT}/bin/sh" ] ; then
-       echo_log "Missing ${STAGEMNT}/bin/sh: Something went horribly wrong!"
-       exit 1
-     fi
+    echo_log "Missing ${STAGEMNT}/bin/sh: Something went horribly wrong!"
+    exit 1
   fi
 
   # Workaround to issue in FreeBSD pkg base
