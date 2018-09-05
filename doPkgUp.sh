@@ -64,10 +64,6 @@ echo "PKG_DBDIR: /var/db/trueos-update/pkgdb" >> /var/db/trueos-update/.pkgUpdat
 echo "Removing old packages... Please wait..."
 pkg-static ${PKG_CFLAG} ${PKG_FLAG} unlock -ay
 
-# Bad PKG, bad!
-pkg-static ${PKG_CFLAG} ${PKG_FLAG} delete -y javavmwrapper-2.5_1 2>/dev/null >/dev/null
-pkg-static ${PKG_CFLAG} ${PKG_FLAG} delete -y javavmwrapper-2.5_2 2>/dev/null >/dev/null
-
 # Since we cant remove pkgs via repository, this will have to do
 pkg-static query -e '%n !~ FreeBSD-*' %o | xargs pkg-static ${PKG_CFLAG} ${PKG_FLAG} delete -fy
 if [ $? -ne 0 ] ; then
