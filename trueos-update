@@ -608,6 +608,15 @@ prep_pkgs_chroot()
   export ABI_FLAG
   echo_log "Setting new system ABI to: $ABI"
 
+  # Start by installing FreeBSD-runtime which is essential to boot-strapping others
+  ${PKG_CMD} -r ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf FreeBSD-runtime >>${LOGOUT} 2>>${LOGOUT}
+
+  # Do it again now to get the pkg registered on the system
+  ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf FreeBSD-runtime >>${LOGOUT} 2>>${LOGOUT}
+  if [ $? -eq 0 ] ; then
+      exit_err "Failed boot-strapping FreeBSD-runtime"
+  fi
+
   # Install new base packages
   while read fpkg
   do
@@ -645,7 +654,7 @@ prep_pkgs_chroot()
 
     # Install the base system package now
     echo_log "Installing: $fpkg"
-    ${PKG_CMD} -r ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf $fpkg >>${LOGOUT} 2>>${LOGOUT}
+    ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf $fpkg >>${LOGOUT} 2>>${LOGOUT}
     if [ $? -ne 0 ] ; then
       echo_log "FAILED: Installing world base package: $fpkg"
       rm /tmp/.fpkg.$$
