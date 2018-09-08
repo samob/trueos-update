@@ -610,11 +610,14 @@ prep_pkgs_chroot()
 
   # Start by installing FreeBSD-runtime which is essential to boot-strapping others
   ${PKG_CMD} -r ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf FreeBSD-runtime >>${LOGOUT} 2>>${LOGOUT}
+  if [ $? -eq 0 ] ; then
+      exit_err "Failed boot-strapping FreeBSD-runtime"
+  fi
 
   # Do it again now to get the pkg registered on the system
   ${PKG_CMD} -c ${STAGEMNT} ${PKG_CFLAG} ${PKG_FLAG} ${ABI_FLAG} install -U -yf FreeBSD-runtime >>${LOGOUT} 2>>${LOGOUT}
   if [ $? -eq 0 ] ; then
-      exit_err "Failed boot-strapping FreeBSD-runtime"
+      exit_err "Failed FreeBSD-runtime registration"
   fi
 
   # Install new base packages
