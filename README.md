@@ -10,7 +10,6 @@
 	- [Filing Issues or Feature Requests](#fileissues)
 	- [Community Channels](#community)
 		- [Discourse](#discourse)
-		- [Gitter](#gitter)
 		- [IRC](#irc)
 		- [Subreddit](#subreddit)
 	- [Social Media](#socialmedia)
